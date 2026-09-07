@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
 
@@ -8,10 +8,10 @@ interface HeroSectionProps {
 
 const TOTAL_FRAMES = 100;
 
-// Helper to format frame path: /frames/ezgif-frame-001.png -> /frames/ezgif-frame-100.png
+// Helper to format frame path to optimized 18KB WebP sequence (1.86MB total vs 300MB originally)
 const getFramePath = (index: number) => {
   const padded = String(index).padStart(3, "0");
-  return `/frames/ezgif-frame-${padded}.png`;
+  return `/frames-webp/frame-${padded}.webp`;
 };
 
 export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
@@ -32,7 +32,25 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
   // UI state for bottom HUD indicator and text fade
   const [displayFrame, setDisplayFrame] = useState<number>(1);
   const [scrollProgress, setScrollProgress] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Preloader state: tracks network loading smoothly before letting the user scroll
+  const [isPreloading, setIsPreloading] = useState<boolean>(true);
+  const [preloaderFading, setPreloaderFading] = useState<boolean>(false);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
+  const [loadedCount, setLoadedCount] = useState<number>(0);
+
+  // Lock scrolling while preloader is active to prevent lag on initial scroll
+  useEffect(() => {
+    if (isPreloading) {
+      document.body.style.overflow = "hidden";
+      window.scrollTo(0, 0);
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isPreloading]);
 
   // Draw a specific frame to the canvas with DPR support & aspect-ratio cover
   const drawFrame = useCallback((frameNumber: number) => {
@@ -110,11 +128,12 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
     lastDrawnFrameRef.current = frameNumber;
   }, []);
 
-  // Progressive image preloader
+  // Progressive image preloader: loads all 100 lightweight WebP frames smoothly
   useEffect(() => {
     let isCancelled = false;
+    let count = 0;
 
-    const loadSingleImage = (index: number): Promise<void> => {
+    const preloadFrame = (index: number): Promise<void> => {
       return new Promise((resolve) => {
         if (loadedFramesRef.current.has(index)) {
           resolve();
@@ -122,51 +141,92 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
         }
         const img = new Image();
         img.src = getFramePath(index);
-        img.onload = () => {
+        
+        const onFinish = async () => {
           if (!isCancelled) {
+            try {
+              if ("decode" in img) {
+                await img.decode();
+              }
+            } catch {
+              // Ignore decode errors on non-supporting browsers
+            }
             imagesRef.current.set(index, img);
             loadedFramesRef.current.add(index);
+            count++;
+            setLoadedCount(count);
+            setLoadProgress(Math.round((count / TOTAL_FRAMES) * 100));
+            
             if (index === 1) {
-              setIsLoading(false);
               drawFrame(1);
             }
           }
           resolve();
         };
+
+        img.onload = onFinish;
         img.onerror = () => {
+          count++;
+          setLoadedCount(count);
+          setLoadProgress(Math.round((count / TOTAL_FRAMES) * 100));
           resolve();
         };
       });
     };
 
-    // Preload Strategy:
-    // Phase 1: Frame 1 immediately for instant paint
-    // Phase 2: Key milestones (every 10th frame)
-    // Phase 3: All remaining frames in batches
-    const runPreload = async () => {
-      // 1. Initial frame
-      await loadSingleImage(1);
+    // Load in concurrent pools of 10 for rapid, non-blocking network delivery
+    const startPreloading = async () => {
+      // 1. Initial critical frame
+      await preloadFrame(1);
+      drawFrame(1);
 
-      // 2. Key milestones
-      const milestones = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-      for (const m of milestones) {
+      // 2. Parallel batched preload of remaining frames
+      const BATCH_SIZE = 10;
+      for (let i = 1; i <= TOTAL_FRAMES; i += BATCH_SIZE) {
         if (isCancelled) return;
-        await loadSingleImage(m);
+        const batch: Promise<void>[] = [];
+        for (let j = i; j < i + BATCH_SIZE && j <= TOTAL_FRAMES; j++) {
+          if (j !== 1) {
+            batch.push(preloadFrame(j));
+          }
+        }
+        await Promise.all(batch);
       }
 
-      // 3. Batched preload of remaining frames
-      for (let i = 1; i <= TOTAL_FRAMES; i++) {
-        if (isCancelled) return;
-        if (!loadedFramesRef.current.has(i)) {
-          await loadSingleImage(i);
-        }
+      if (!isCancelled) {
+        // Ensure Frame 1 is cleanly drawn
+        drawFrame(1);
+        
+        // Graceful pause at 100% to conclude the luxury intro
+        setTimeout(() => {
+          if (!isCancelled) {
+            setPreloaderFading(true);
+            setTimeout(() => {
+              if (!isCancelled) {
+                setIsPreloading(false);
+              }
+            }, 700);
+          }
+        }, 300);
       }
     };
 
-    runPreload();
+    startPreloading();
+
+    // Fallback safety timeout (4.5s) to guarantee user can always scroll even on degraded 3G
+    const safetyTimer = setTimeout(() => {
+      if (!isCancelled && isPreloading) {
+        drawFrame(1);
+        setPreloaderFading(true);
+        setTimeout(() => {
+          setIsPreloading(false);
+        }, 700);
+      }
+    }, 4500);
 
     return () => {
       isCancelled = true;
+      clearTimeout(safetyTimer);
     };
   }, [drawFrame]);
 
@@ -370,6 +430,54 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
         </aside>
 
       </div>
+
+      {/* Luxury Fullscreen Initial Preloader (Locks scroll until network loading is 100% complete) */}
+      {isPreloading && (
+        <div
+          className={`fixed inset-0 z-[100] bg-[#050505] flex flex-col items-center justify-center select-none transition-all duration-700 ease-out px-6 ${
+            preloaderFading
+              ? "opacity-0 pointer-events-none scale-105"
+              : "opacity-100 pointer-events-auto"
+          }`}
+        >
+          {/* Subtle ambient luxury vignette */}
+          <div className="absolute inset-0 bg-radial from-transparent via-black/40 to-black/90 pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col items-center text-center max-w-sm">
+            {/* Brand Title */}
+            <span className="text-[10px] uppercase tracking-[0.38em] text-neutral-400 font-semibold mb-3 font-sans">
+              HAUTE ATELIER
+            </span>
+            <h2 className="font-serif-luxury text-3xl sm:text-4xl font-bold tracking-[0.26em] uppercase text-white mb-8">
+              ELEGANT NAIL
+            </h2>
+
+            {/* Glowing Minimalist Hairline Progress Bar */}
+            <div className="w-56 sm:w-64 h-[2px] bg-white/10 overflow-hidden relative mb-5">
+              <div
+                className="h-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)] transition-all duration-150 ease-out"
+                style={{ width: `${loadProgress}%` }}
+              />
+            </div>
+
+            {/* Sequence Status & Frame Counter */}
+            <div className="flex items-center justify-between w-56 sm:w-64 text-[10px] tracking-[0.2em] font-mono text-neutral-400">
+              <span className="text-neutral-500 uppercase">
+                {loadProgress >= 100 ? "READY" : "LOADING"}
+              </span>
+              <span className="text-white font-bold">
+                {loadProgress}%
+              </span>
+            </div>
+
+            <p className="text-[9px] uppercase tracking-[0.28em] text-neutral-500 font-sans mt-4">
+              {loadProgress >= 100
+                ? "EXPERIENCE INITIALIZED"
+                : `CACHING FRAME ${String(loadedCount).padStart(3, "0")} // 100`}
+            </p>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
