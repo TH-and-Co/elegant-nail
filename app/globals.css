@@ -1,26 +1,104 @@
 @import "tailwindcss";
 
+@theme {
+  --font-serif: var(--font-bodoni), "Bodoni MT", "Didot", serif;
+  --font-sans: var(--font-montserrat), "Avenir", "Proxima Nova", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #050505;
+  --foreground: #ffffff;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
+  color-scheme: dark;
+  background-color: #050505;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: #050505;
+  color: #ffffff;
+  font-family: var(--font-montserrat), "Avenir", "Proxima Nova", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* Custom hairline borders and glassmorphism for light theme */
+.border-hairline {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.glass-nav-light {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Luxury typography styling */
+.font-serif-luxury {
+  font-family: var(--font-bodoni), "Bodoni MT", "Didot", serif;
+}
+
+.tracking-luxury-wide {
+  letter-spacing: 0.28em;
+}
+
+.tracking-luxury-ultra {
+  letter-spacing: 0.38em;
+}
+
+/* Subtle delicate bounce for downward scroll cue */
+@keyframes delicate-bounce {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translateY(6px);
+    opacity: 1;
+  }
+}
+
+.animate-delicate-bounce {
+  animation: delicate-bounce 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Deep obsidian card with seamless luminous white neon glow on hover */
+.card-luminous-glow {
+  background-color: rgba(9, 9, 11, 0.94);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.85);
+  transition: box-shadow 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.5s ease,
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-luminous-glow:hover {
+  border-color: rgba(255, 255, 255, 0.65);
+  transform: translateY(-3px);
+  box-shadow: 
+    0 0 30px rgba(255, 255, 255, 0.24),
+    0 0 70px rgba(255, 255, 255, 0.13),
+    0 0 130px rgba(255, 255, 255, 0.08),
+    0 0 220px rgba(255, 255, 255, 0.04),
+    0 24px 48px -12px rgba(0, 0, 0, 0.95);
+}
+
+/* Custom scrollbar for monochrome luxury dark theme */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
