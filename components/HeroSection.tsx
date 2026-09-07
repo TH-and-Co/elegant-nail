@@ -39,15 +39,18 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
   const [loadProgress, setLoadProgress] = useState<number>(0);
   const [loadedCount, setLoadedCount] = useState<number>(0);
 
-  // Lock scrolling while preloader is active to prevent lag on initial scroll
+  // Lock scrolling on both documentElement and body while preloader is active
   useEffect(() => {
     if (isPreloading) {
+      document.documentElement.style.overflow = "hidden";
       document.body.style.overflow = "hidden";
       window.scrollTo(0, 0);
     } else {
+      document.documentElement.style.overflow = "";
       document.body.style.overflow = "";
     }
     return () => {
+      document.documentElement.style.overflow = "";
       document.body.style.overflow = "";
     };
   }, [isPreloading]);
@@ -131,17 +134,27 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
   // Progressive image preloader: loads all 100 lightweight WebP frames smoothly
   useEffect(() => {
     let isCancelled = false;
-    let count = 0;
+    const startTime = Date.now();
+    const MIN_PRELOADER_TIME = 1200; // Minimum 1.2s luxury presentation time
+
+    const updateProgress = () => {
+      if (isCancelled) return;
+      const count = loadedFramesRef.current.size;
+      setLoadedCount(count);
+      setLoadProgress(Math.round((count / TOTAL_FRAMES) * 100));
+    };
 
     const preloadFrame = (index: number): Promise<void> => {
       return new Promise((resolve) => {
-        if (loadedFramesRef.current.has(index)) {
+        if (loadedFramesRef.current.has(index) && imagesRef.current.has(index)) {
+          updateProgress();
           resolve();
           return;
         }
+
         const img = new Image();
         img.src = getFramePath(index);
-        
+
         const onFinish = async () => {
           if (!isCancelled) {
             try {
@@ -149,14 +162,12 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
                 await img.decode();
               }
             } catch {
-              // Ignore decode errors on non-supporting browsers
+              // Ignore decode error on non-supporting browsers
             }
             imagesRef.current.set(index, img);
             loadedFramesRef.current.add(index);
-            count++;
-            setLoadedCount(count);
-            setLoadProgress(Math.round((count / TOTAL_FRAMES) * 100));
-            
+            updateProgress();
+
             if (index === 1) {
               drawFrame(1);
             }
@@ -166,21 +177,20 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
 
         img.onload = onFinish;
         img.onerror = () => {
-          count++;
-          setLoadedCount(count);
-          setLoadProgress(Math.round((count / TOTAL_FRAMES) * 100));
+          // Mark as handled to avoid hanging
+          loadedFramesRef.current.add(index);
+          updateProgress();
           resolve();
         };
       });
     };
 
-    // Load in concurrent pools of 10 for rapid, non-blocking network delivery
-    const startPreloading = async () => {
-      // 1. Initial critical frame
+    const runPreloadSequence = async () => {
+      // 1. Initial critical frame 1
       await preloadFrame(1);
       drawFrame(1);
 
-      // 2. Parallel batched preload of remaining frames
+      // 2. Parallel batched preload of remaining 99 frames (in pools of 10)
       const BATCH_SIZE = 10;
       for (let i = 1; i <= TOTAL_FRAMES; i += BATCH_SIZE) {
         if (isCancelled) return;
@@ -194,10 +204,15 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
       }
 
       if (!isCancelled) {
-        // Ensure Frame 1 is cleanly drawn
+        // Draw frame 1 onto canvas while still behind the preloader
         drawFrame(1);
-        
-        // Graceful pause at 100% to conclude the luxury intro
+        setLoadedCount(TOTAL_FRAMES);
+        setLoadProgress(100);
+
+        // Ensure minimum visual duration so preloader never flickers or vanishes abruptly
+        const elapsed = Date.now() - startTime;
+        const remainingDelay = Math.max(300, MIN_PRELOADER_TIME - elapsed);
+
         setTimeout(() => {
           if (!isCancelled) {
             setPreloaderFading(true);
@@ -207,28 +222,29 @@ export default function HeroSection({ onOpenBooking }: HeroSectionProps) {
               }
             }, 700);
           }
-        }, 300);
+        }, remainingDelay);
       }
     };
 
-    startPreloading();
+    runPreloadSequence();
 
-    // Fallback safety timeout (4.5s) to guarantee user can always scroll even on degraded 3G
+    // Fallback safety timeout (5.0s) to guarantee scrolling unlocks under all network conditions
     const safetyTimer = setTimeout(() => {
       if (!isCancelled && isPreloading) {
         drawFrame(1);
+        setLoadProgress(100);
         setPreloaderFading(true);
         setTimeout(() => {
           setIsPreloading(false);
         }, 700);
       }
-    }, 4500);
+    }, 5000);
 
     return () => {
       isCancelled = true;
       clearTimeout(safetyTimer);
     };
-  }, [drawFrame]);
+  }, [drawFrame, isPreloading]);
 
   // Recalculate frame on scroll
   useEffect(() => {
